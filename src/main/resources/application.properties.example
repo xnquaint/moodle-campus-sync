@@ -1,0 +1,4 @@
+spring.application.name=moodle-campus-sync
+server.port=8081
+moodle.api.token=your_token_here
+moodle.api.url=http://moodle:8080/webservice/rest/server.php
