@@ -24,6 +24,7 @@ services:
       - mariadb
     volumes:
       - moodle_data:/bitnami/moodle
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
   moodle-sync-service:
     build: . 
