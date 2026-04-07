@@ -14,6 +14,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
@@ -306,6 +309,16 @@ public class MoodleService {
                             markNode.put("student_name", studentName);
                             markNode.put("score", item.path("graderaw").asDouble());
 
+                            long dateGraded = item.path("gradedategraded").asLong(0);
+                            if (dateGraded > 0) {
+                                String formattedDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                                        .withZone(ZoneId.systemDefault())
+                                        .format(Instant.ofEpochSecond(dateGraded));
+                                markNode.put("date_graded", formattedDate);
+                            } else {
+                                markNode.putNull("date_graded");
+                            }
+
                             if ("assign".equals(item.path("itemmodule").asText())) {
                                 Integer graderId = getGraderFromAssignment(item.path("iteminstance").asInt(), studentId);
                                 if (graderId != null && graderId > 0) {
@@ -429,10 +442,22 @@ public class MoodleService {
             col.set("marks", objectMapper.createArrayNode());
             columnsContainer.set(key, col);
         }
+
         ObjectNode mark = objectMapper.createObjectNode();
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
         mark.put("score", item.path("graderaw").asDouble());
+
+        long dateGraded = item.path("gradedategraded").asLong(0);
+        if (dateGraded > 0) {
+            String formattedDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochSecond(dateGraded));
+            mark.put("date_graded", formattedDate);
+        } else {
+            mark.putNull("date_graded");
+        }
+
         ((ArrayNode) columnsContainer.get(key).get("marks")).add(mark);
     }
 
@@ -445,10 +470,22 @@ public class MoodleService {
             col.set("marks", objectMapper.createArrayNode());
             map.put(itemId, col);
         }
+
         ObjectNode mark = objectMapper.createObjectNode();
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
         mark.put("score", item.path("graderaw").asDouble());
+
+        long dateGraded = item.path("gradedategraded").asLong(0);
+        if (dateGraded > 0) {
+            String formattedDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochSecond(dateGraded));
+            mark.put("date_graded", formattedDate);
+        } else {
+            mark.putNull("date_graded");
+        }
+
         ((ArrayNode) map.get(itemId).get("marks")).add(mark);
     }
 }
