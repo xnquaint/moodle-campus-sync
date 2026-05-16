@@ -7,7 +7,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.time.Duration;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -21,6 +24,7 @@ import java.util.*;
 
 @Service
 public class MoodleService {
+    private static final Logger log = LoggerFactory.getLogger(MoodleService.class);
 
     @Value("${moodle.api.token}")
     private String token;
@@ -28,12 +32,23 @@ public class MoodleService {
     @Value("${moodle.api.url}")
     private String moodleUrl;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    @Autowired
+    private HtmlSanitizer htmlSanitizer;
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10)) 
+            .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private String sendGetRequest(String url) throws Exception {
+        log.info("Відправка HTTP GET запиту до Moodle API: {}", url.split("wstoken=")[0]); // Логуємо URL без токена для безпеки
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofString()).body();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        
+        if (response.statusCode() != 200) {
+            log.warn("Moodle повернув нестандартний статус код: {}", response.statusCode());
+        }
+        return response.body();
     }
 
     public JsonNode getUserDataByEmail(String email) throws Exception {
@@ -61,13 +76,28 @@ public class MoodleService {
     }
 
     public JsonNode getAllCourses() throws Exception {
-        String url = UriComponentsBuilder.fromUriString(moodleUrl)
-                .queryParam("wstoken", token)
-                .queryParam("wsfunction", "core_course_get_courses")
-                .queryParam("moodlewsrestformat", "json")
-                .build().toUriString();
-        return objectMapper.readTree(sendGetRequest(url));
-    }
+          String url = UriComponentsBuilder.fromUriString(moodleUrl)
+                  .queryParam("wstoken", token)
+                  .queryParam("wsfunction", "core_course_get_courses")
+                  .queryParam("moodlewsrestformat", "json")
+                  .build().toUriString();
+                  
+          JsonNode root = objectMapper.readTree(sendGetRequest(url));
+          
+          if (root.isArray()) {
+              for (JsonNode courseNode : root) {
+                  if (courseNode.has("summary")) {
+                      String rawSummary = courseNode.get("summary").asText();
+                      
+                      String cleanSummary = htmlSanitizer.sanitize(rawSummary);
+                      
+                      ((ObjectNode) courseNode).put("summary", cleanSummary);
+                  }
+              }
+          }
+          
+          return root;
+      }
 
     public ObjectNode getCourseTeachers(int courseId) throws Exception {
         String url = UriComponentsBuilder.fromUriString(moodleUrl)
@@ -268,7 +298,7 @@ public class MoodleService {
         if (courses.isArray() && !courses.isEmpty()) {
             JsonNode cNode = courses.get(0);
             courseName = cNode.path("fullname").asText();
-            courseSummary = cNode.path("summary").asText().replaceAll("<[^>]*>", "").trim();
+            courseSummary = htmlSanitizer.sanitize(cNode.path("summary").asText());
         }
 
         String gradesUrl = UriComponentsBuilder.fromUriString(moodleUrl)
