@@ -23,5 +23,6 @@ record GradeItem(
     @JsonProperty("grademax") Double grademax,
     @JsonProperty("itemtype") String itemtype,
     @JsonProperty("itemmodule") String itemmodule,
-    @JsonProperty("iteminstance") Integer iteminstance
+    @JsonProperty("iteminstance") Integer iteminstance,
+    @JsonProperty("feedback") String feedback
 ) {}

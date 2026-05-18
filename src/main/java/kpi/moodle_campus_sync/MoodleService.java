@@ -76,28 +76,44 @@ public class MoodleService {
     }
 
     public JsonNode getAllCourses() throws Exception {
-          String url = UriComponentsBuilder.fromUriString(moodleUrl)
-                  .queryParam("wstoken", token)
-                  .queryParam("wsfunction", "core_course_get_courses")
-                  .queryParam("moodlewsrestformat", "json")
-                  .build().toUriString();
-                  
-          JsonNode root = objectMapper.readTree(sendGetRequest(url));
-          
-          if (root.isArray()) {
-              for (JsonNode courseNode : root) {
-                  if (courseNode.has("summary")) {
-                      String rawSummary = courseNode.get("summary").asText();
-                      
-                      String cleanSummary = htmlSanitizer.sanitize(rawSummary);
-                      
-                      ((ObjectNode) courseNode).put("summary", cleanSummary);
-                  }
-              }
-          }
-          
-          return root;
-      }
+        String url = UriComponentsBuilder.fromUriString(moodleUrl)
+                .queryParam("wstoken", token)
+                .queryParam("wsfunction", "core_course_get_courses")
+                .queryParam("moodlewsrestformat", "json")
+                .build().toUriString();
+                
+        JsonNode root = objectMapper.readTree(sendGetRequest(url));
+        
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                .withZone(ZoneId.systemDefault());
+        
+        String[] dateFields = {"startdate", "enddate", "timecreated", "timemodified"};
+        
+        if (root.isArray()) {
+            for (JsonNode courseNode : root) {
+                ObjectNode objNode = (ObjectNode) courseNode;
+                
+                if (objNode.has("summary")) {
+                    String rawSummary = objNode.get("summary").asText();
+                    String cleanSummary = htmlSanitizer.sanitize(rawSummary);
+                    objNode.put("summary", cleanSummary);
+                }
+                
+                for (String field : dateFields) {
+                    if (objNode.has(field)) {
+                        long timestamp = objNode.get(field).asLong(0);
+                        if (timestamp > 0) {
+                            objNode.put(field, dateFormatter.format(Instant.ofEpochSecond(timestamp)));
+                        } else {
+                            objNode.putNull(field);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return root;
+    }
 
     public ObjectNode getCourseTeachers(int courseId) throws Exception {
         String url = UriComponentsBuilder.fromUriString(moodleUrl)
@@ -339,6 +355,12 @@ public class MoodleService {
                             markNode.put("student_name", studentName);
                             markNode.put("score", item.path("graderaw").asDouble());
 
+                            if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
+                                markNode.put("comment", htmlSanitizer.sanitize(item.path("feedback").asText()));
+                            } else {
+                                markNode.putNull("comment");
+                            }
+
                             long dateGraded = item.path("gradedategraded").asLong(0);
                             if (dateGraded > 0) {
                                 String formattedDate = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -466,6 +488,10 @@ public class MoodleService {
         String key = String.valueOf(itemId);
         if (!columnsContainer.has(key)) {
             ObjectNode col = objectMapper.createObjectNode();
+            col.put("item_id", itemId);
+            if (!item.path("iteminstance").isNull()) {
+                col.put("moodle_instance_id", item.path("iteminstance").asInt());
+            }
             col.put("column_name", item.path("itemname").asText());
             col.put("module_type", item.path("itemmodule").asText());
             col.put("max_grade", item.path("grademax").asDouble());
@@ -477,6 +503,12 @@ public class MoodleService {
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
         mark.put("score", item.path("graderaw").asDouble());
+
+        if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
+            mark.put("comment", htmlSanitizer.sanitize(item.path("feedback").asText()));
+        } else {
+            mark.putNull("comment");
+        }
 
         long dateGraded = item.path("gradedategraded").asLong(0);
         if (dateGraded > 0) {
@@ -494,6 +526,10 @@ public class MoodleService {
     private void addMarkToColumn(Map<Integer, ObjectNode> map, int itemId, JsonNode item, int studentId, String studentName) {
         if (!map.containsKey(itemId)) {
             ObjectNode col = objectMapper.createObjectNode();
+            col.put("item_id", itemId);
+            if (!item.path("iteminstance").isNull()) {
+                col.put("moodle_instance_id", item.path("iteminstance").asInt());
+            }
             col.put("column_name", item.path("itemname").asText());
             col.put("module_type", item.path("itemmodule").asText());
             col.put("max_grade", item.path("grademax").asDouble());
@@ -505,6 +541,12 @@ public class MoodleService {
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
         mark.put("score", item.path("graderaw").asDouble());
+
+        if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
+            mark.put("comment", htmlSanitizer.sanitize(item.path("feedback").asText()));
+        } else {
+            mark.putNull("comment");
+        }
 
         long dateGraded = item.path("gradedategraded").asLong(0);
         if (dateGraded > 0) {
