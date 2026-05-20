@@ -142,6 +142,7 @@ public class MoodleService {
                     teacherInfo.put("firstname", user.path("firstname").asText());
                     teacherInfo.put("lastname", user.path("lastname").asText());
                     teacherInfo.put("role_name", user.path("roles").get(0).path("shortname").asText());
+                    teacherInfo.put("email", user.path("email").asText(null));
                     teachersArray.add(teacherInfo);
                 }
             }
@@ -296,6 +297,50 @@ public class MoodleService {
         return bulkData;
     }
 
+    private Map<Integer, String> getStudentGroups(int courseId) throws Exception {
+        String url = UriComponentsBuilder.fromUriString(moodleUrl)
+                .queryParam("wstoken", token)
+                .queryParam("wsfunction", "core_enrol_get_enrolled_users")
+                .queryParam("courseid", courseId)
+                .queryParam("moodlewsrestformat", "json")
+                .build().toUriString();
+
+        JsonNode allUsers = objectMapper.readTree(sendGetRequest(url));
+        Map<Integer, String> studentGroups = new HashMap<>();
+
+        if (allUsers.isArray()) {
+            for (JsonNode user : allUsers) {
+                int userId = user.path("id").asInt();
+                JsonNode groups = user.path("groups");
+                if (groups != null && groups.isArray() && !groups.isEmpty()) {
+                    studentGroups.put(userId, groups.get(0).path("name").asText());
+                } else {
+                    studentGroups.put(userId, "Без групи");
+                }
+            }
+        }
+        return studentGroups;
+    }
+
+    private Map<Integer, JsonNode> getEnrolledUsersMap(int courseId) throws Exception {
+        String url = UriComponentsBuilder.fromUriString(moodleUrl)
+                .queryParam("wstoken", token)
+                .queryParam("wsfunction", "core_enrol_get_enrolled_users")
+                .queryParam("courseid", courseId)
+                .queryParam("moodlewsrestformat", "json")
+                .build().toUriString();
+
+        JsonNode allUsers = objectMapper.readTree(sendGetRequest(url));
+        Map<Integer, JsonNode> userMap = new HashMap<>();
+
+        if (allUsers.isArray()) {
+            for (JsonNode user : allUsers) {
+                userMap.put(user.path("id").asInt(), user);
+            }
+        }
+        return userMap;
+    }
+
     public ObjectNode getCampusJournal(int courseId) throws Exception {
         String courseUrl = UriComponentsBuilder.fromUriString(moodleUrl)
                 .queryParam("wstoken", token)
@@ -310,6 +355,8 @@ public class MoodleService {
 
         String courseName = "Unknown Course";
         String courseSummary = "";
+
+        Map<Integer, String> studentGroups = getStudentGroups(courseId);
 
         if (courses.isArray() && !courses.isEmpty()) {
             JsonNode cNode = courses.get(0);
@@ -326,6 +373,7 @@ public class MoodleService {
 
         JsonNode userGrades = objectMapper.readTree(sendGetRequest(gradesUrl)).path("usergrades");
         Map<Integer, ObjectNode> columnsMap = new LinkedHashMap<>();
+        Map<Integer, JsonNode> enrolledUsers = getEnrolledUsersMap(courseId);
 
         if (userGrades.isArray()) {
             for (JsonNode studentNode : userGrades) {
@@ -353,6 +401,20 @@ public class MoodleService {
                             ObjectNode markNode = objectMapper.createObjectNode();
                             markNode.put("moodle_student_id", studentId);
                             markNode.put("student_name", studentName);
+
+                            JsonNode userNode = enrolledUsers.get(studentId);
+                            String groupName = "Без групи";
+                            String studentEmail = null;
+                            if (userNode != null) {
+                                studentEmail = userNode.path("email").asText(null);
+                                JsonNode groups = userNode.path("groups");
+                                if (groups != null && groups.isArray() && !groups.isEmpty()) {
+                                    groupName = groups.get(0).path("name").asText("Без групи");
+                                }
+                            }
+                            markNode.put("student_group", groupName);
+                            markNode.put("email", studentEmail);
+
                             markNode.put("score", item.path("graderaw").asDouble());
 
                             if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
@@ -374,12 +436,13 @@ public class MoodleService {
                             if ("assign".equals(item.path("itemmodule").asText())) {
                                 Integer graderId = getGraderFromAssignment(item.path("iteminstance").asInt(), studentId);
                                 if (graderId != null && graderId > 0) {
-                                    JsonNode teacher = getUserById(graderId);
+                                    JsonNode teacher = enrolledUsers.get(graderId);
                                     if (teacher != null) {
                                         ObjectNode tNode = objectMapper.createObjectNode();
                                         tNode.put("id", graderId);
-                                        tNode.put("firstname", teacher.path("firstname").asText());
-                                        tNode.put("lastname", teacher.path("lastname").asText());
+                                        tNode.put("firstname", teacher.path("firstname").asText(""));
+                                        tNode.put("lastname", teacher.path("lastname").asText(""));
+                                        tNode.put("email", teacher.path("email").asText(null));
                                         markNode.set("graded_by_teacher", tNode);
                                     }
                                 }
@@ -413,7 +476,18 @@ public class MoodleService {
                 .build().toUriString();
 
         JsonNode courseRoot = objectMapper.readTree(sendGetRequest(courseUrl));
-        JsonNode courseData = courseRoot.path("courses").get(0);
+        JsonNode courses = courseRoot.path("courses");
+
+        String courseName = "Unknown Course";
+        String courseShortname = "";
+        String courseDescription = "";
+
+        if (courses.isArray() && !courses.isEmpty()) {
+            JsonNode courseData = courses.get(0);
+            courseName = courseData.path("fullname").asText("Unknown Course");
+            courseShortname = courseData.path("shortname").asText("");
+            courseDescription = htmlSanitizer.sanitize(courseData.path("summary").asText(""));
+        }
 
         String gradesUrl = UriComponentsBuilder.fromUriString(moodleUrl)
                 .queryParam("wstoken", token)
@@ -423,10 +497,13 @@ public class MoodleService {
                 .build().toUriString();
 
         JsonNode userGrades = objectMapper.readTree(sendGetRequest(gradesUrl)).path("usergrades");
+        Map<Integer, JsonNode> enrolledUsers = getEnrolledUsersMap(courseId);
+        
         ObjectNode result = objectMapper.createObjectNode();
         result.put("course_id", courseId);
-        result.put("course_name", courseData.path("fullname").asText());
-        result.put("course_shortname", courseData.path("shortname").asText());
+        result.put("course_name", courseName);
+        result.put("course_shortname", courseShortname);
+        result.put("course_description", courseDescription);
 
         Map<Integer, ObjectNode> teacherJournalsMap = new HashMap<>();
         Map<Integer, ObjectNode> unassignedColumnsMap = new HashMap<>();
@@ -442,24 +519,39 @@ public class MoodleService {
                     int itemId = item.path("id").asInt();
                     String moduleType = item.path("itemmodule").asText();
 
+                    JsonNode userNode = enrolledUsers.get(studentId);
+                    String groupName = "Без групи";
+                    String studentEmail = null;
+                    if (userNode != null) {
+                        studentEmail = userNode.path("email").asText(null);
+                        JsonNode groups = userNode.path("groups");
+                        if (groups != null && groups.isArray() && !groups.isEmpty()) {
+                            groupName = groups.get(0).path("name").asText("Без групи");
+                        }
+                    }
+
                     if ("assign".equals(moduleType)) {
                         Integer graderId = getGraderFromAssignment(item.path("iteminstance").asInt(), studentId);
                         if (graderId != null && graderId > 0) {
                             teacherJournalsMap.computeIfAbsent(graderId, id -> {
                                 ObjectNode journal = objectMapper.createObjectNode();
-                                try {
-                                    JsonNode tInfo = getUserById(id);
-                                    journal.put("teacher_id", id);
+                                JsonNode tInfo = enrolledUsers.get(id);
+                                journal.put("teacher_id", id);
+                                if (tInfo != null) {
                                     journal.put("teacher_name", tInfo.path("firstname").asText() + " " + tInfo.path("lastname").asText());
-                                    journal.set("columns", objectMapper.createObjectNode());
-                                } catch (Exception e) {}
+                                    journal.put("email", tInfo.path("email").asText(null));
+                                } else {
+                                    journal.put("teacher_name", "Unknown Teacher");
+                                    journal.putNull("email");
+                                }
+                                journal.set("columns", objectMapper.createObjectNode());
                                 return journal;
                             });
                             ObjectNode columnsContainer = (ObjectNode) teacherJournalsMap.get(graderId).get("columns");
-                            addMarkToColumn(columnsContainer, itemId, item, studentId, studentName);
+                            addMarkToColumn(columnsContainer, itemId, item, studentId, studentName, groupName, studentEmail);
                         }
                     } else {
-                        addMarkToColumn(unassignedColumnsMap, itemId, item, studentId, studentName);
+                        addMarkToColumn(unassignedColumnsMap, itemId, item, studentId, studentName, groupName, studentEmail);
                     }
                 }
             }
@@ -470,6 +562,7 @@ public class MoodleService {
             ObjectNode finalJournal = objectMapper.createObjectNode();
             finalJournal.put("teacher_id", j.get("teacher_id").asInt());
             finalJournal.put("teacher_name", j.get("teacher_name").asText());
+            finalJournal.set("email", j.get("email"));
             ArrayNode colArray = objectMapper.createArrayNode();
             j.get("columns").fields().forEachRemaining(entry -> colArray.add(entry.getValue()));
             finalJournal.set("columns", colArray);
@@ -484,7 +577,7 @@ public class MoodleService {
         return result;
     }
 
-    private void addMarkToColumn(ObjectNode columnsContainer, int itemId, JsonNode item, int studentId, String studentName) {
+    private void addMarkToColumn(ObjectNode columnsContainer, int itemId, JsonNode item, int studentId, String studentName, String groupName, String studentEmail) {
         String key = String.valueOf(itemId);
         if (!columnsContainer.has(key)) {
             ObjectNode col = objectMapper.createObjectNode();
@@ -502,6 +595,8 @@ public class MoodleService {
         ObjectNode mark = objectMapper.createObjectNode();
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
+        mark.put("student_group", groupName);
+        mark.put("email", studentEmail);
         mark.put("score", item.path("graderaw").asDouble());
 
         if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
@@ -523,7 +618,7 @@ public class MoodleService {
         ((ArrayNode) columnsContainer.get(key).get("marks")).add(mark);
     }
 
-    private void addMarkToColumn(Map<Integer, ObjectNode> map, int itemId, JsonNode item, int studentId, String studentName) {
+    private void addMarkToColumn(Map<Integer, ObjectNode> map, int itemId, JsonNode item, int studentId, String studentName, String groupName, String studentEmail) {
         if (!map.containsKey(itemId)) {
             ObjectNode col = objectMapper.createObjectNode();
             col.put("item_id", itemId);
@@ -540,6 +635,8 @@ public class MoodleService {
         ObjectNode mark = objectMapper.createObjectNode();
         mark.put("student_id", studentId);
         mark.put("student_name", studentName);
+        mark.put("student_group", groupName);
+        mark.put("email", studentEmail);
         mark.put("score", item.path("graderaw").asDouble());
 
         if (item.hasNonNull("feedback") && !item.path("feedback").asText().isBlank()) {
