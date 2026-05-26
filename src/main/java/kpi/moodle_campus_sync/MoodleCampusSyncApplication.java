@@ -2,7 +2,6 @@ package kpi.moodle_campus_sync;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.core.io.ClassPathResource;
@@ -13,14 +12,16 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @SpringBootApplication
 @RestController
 public class MoodleCampusSyncApplication {
 
-    @Autowired
-    private MoodleService moodleService;
+    private final MoodleService moodleService;
+
+    public MoodleCampusSyncApplication(MoodleService moodleService) {
+        this.moodleService = moodleService;
+    }
 
     public static void main(String[] args) {
         SpringApplication.run(MoodleCampusSyncApplication.class, args);
@@ -33,7 +34,7 @@ public class MoodleCampusSyncApplication {
             List<String> emails = reader.lines()
                     .map(String::trim)
                     .filter(line -> !line.isEmpty())
-                    .collect(Collectors.toList());
+                    .toList();
             return moodleService.getBulkGradesByEmails(emails);
         }
     }
