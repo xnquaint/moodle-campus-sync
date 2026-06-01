@@ -1,43 +1,12 @@
 services:
-  mariadb:
-    image: public.ecr.aws/bitnami/mariadb:11.4
-    environment:
-      - ALLOW_EMPTY_PASSWORD=yes
-      - MARIADB_USER=bn_moodle
-      - MARIADB_DATABASE=bitnami_moodle
-    volumes:
-      - mariadb_data:/bitnami/mariadb
-
-  moodle:
-    image: public.ecr.aws/bitnami/moodle:4.4
-    ports:
-      - '80:8080'
-    environment:
-      - MOODLE_DATABASE_HOST=mariadb
-      - MOODLE_DATABASE_PORT_NUMBER=3306
-      - MOODLE_DATABASE_USER=bn_moodle
-      - MOODLE_DATABASE_NAME=bitnami_moodle
-      - ALLOW_EMPTY_PASSWORD=yes
-      - MOODLE_USERNAME=admin
-      - MOODLE_PASSWORD=bitnami
-    depends_on:
-      - mariadb
-    volumes:
-      - moodle_data:/bitnami/moodle
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-
   moodle-sync-service:
-    build: . 
+    build: .
+    container_name: moodle_sync_api
     ports:
       - '8081:8081'
     environment:
-      - MOODLE_API_URL=http://moodle:8080/webservice/rest/server.php
-    depends_on:
-      - moodle
+      - MOODLE_API_URL=https://moodle.kpi.ua/webservice/rest/server.php
+      - MOODLE_API_TOKEN=your_moodle_secret_token
+      - APP_API_KEY=your_campus_integration_key
     volumes:
-      - ./src/main/resources/application.properties:/src/main/resources/application.properties
       - ./src/main/resources/students.txt:/src/main/resources/students.txt
-
-volumes:
-  mariadb_data:
-  moodle_data:
